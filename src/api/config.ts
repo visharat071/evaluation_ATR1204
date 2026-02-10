@@ -1,4 +1,4 @@
 export const API_CONFIG = {
-    BASE_URL: 'https://krystal-solutional-cherish.ngrok-free.dev',
+    BASE_URL: 'https://surlily-nonatomical-tarsha.ngrok-free.dev',
     TIMEOUT: 10000,
 };

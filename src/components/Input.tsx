@@ -51,13 +51,16 @@ const styles = StyleSheet.create({
         color: theme.colors.textSecondary,
     },
     input: {
-        ...theme.typography.body,
+        fontSize: theme.typography.body.fontSize,
+        fontWeight: theme.typography.body.fontWeight,
         borderWidth: 1,
         borderColor: theme.colors.border,
         borderRadius: theme.borderRadius.m,
-        padding: theme.spacing.m,
+        paddingHorizontal: theme.spacing.m,
+        paddingVertical: theme.spacing.m,
         color: theme.colors.text,
         backgroundColor: theme.colors.surface1,
+        minHeight: 50, // Ensure a consistent minimum height
     },
     inputFocused: {
         borderColor: theme.colors.primary,
