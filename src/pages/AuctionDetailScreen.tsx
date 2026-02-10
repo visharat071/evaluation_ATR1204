@@ -248,7 +248,7 @@ export const AuctionDetailScreen: React.FC<AuctionDetailScreenProps> = ({ naviga
                             <Input
                                 placeholder="Enter amount"
                                 value={bidAmount}
-                                onChangeText={setBidAmount}
+                                onChangeText={(text) => setBidAmount(text.replace(/[^0-9]/g, ''))}
                                 keyboardType="numeric"
                                 style={styles.bidInput}
                                 editable={auction.status === 'ACTIVE'}

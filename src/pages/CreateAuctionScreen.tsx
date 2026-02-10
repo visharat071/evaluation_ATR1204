@@ -134,7 +134,7 @@ export const CreateAuctionScreen: React.FC<CreateAuctionScreenProps> = ({ naviga
                                         label="Starting Price ($)"
                                         placeholder="5000"
                                         value={startingPrice}
-                                        onChangeText={setStartingPrice}
+                                        onChangeText={(text) => setStartingPrice(text.replace(/[^0-9]/g, ''))}
                                         keyboardType="numeric"
                                     />
                                 </View>
