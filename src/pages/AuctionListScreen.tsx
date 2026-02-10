@@ -487,7 +487,7 @@ const styles = StyleSheet.create({
         width: 120,
     },
     profileCardWrapper: {
-        paddingHorizontal: theme.spacing.xl,
+        paddingHorizontal: theme.spacing.l,
         marginBottom: theme.spacing.l,
     },
     profileCard: {

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, StyleSheet, Text, ScrollView, Alert, TouchableOpacity, KeyboardAvoidingView, Platform, } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../App';
 
@@ -17,11 +18,13 @@ export const CreateAuctionScreen: React.FC<CreateAuctionScreenProps> = ({ naviga
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
     const [startingPrice, setStartingPrice] = useState('');
-    const [endsAt, setEndsAt] = useState('');
+    const [endDate, setEndDate] = useState(new Date(Date.now() + 86400000)); // Default to tomorrow
+    const [showPicker, setShowPicker] = useState(false);
+    const [pickerMode, setPickerMode] = useState<'date' | 'time'>('date');
     const [loading, setLoading] = useState(false);
 
     const handleCreate = async () => {
-        if (!title || !description || !startingPrice || !endsAt) {
+        if (!title || !description || !startingPrice) {
             Alert.alert('Error', 'Please fill in all fields');
             return;
         }
@@ -32,9 +35,8 @@ export const CreateAuctionScreen: React.FC<CreateAuctionScreenProps> = ({ naviga
             return;
         }
 
-        const endDate = new Date(endsAt);
-        if (isNaN(endDate.getTime()) || endDate < new Date()) {
-            Alert.alert('Error', 'Please enter a valid future date (YYYY-MM-DDTHH:mm:ssZ)');
+        if (endDate < new Date()) {
+            Alert.alert('Error', 'Auction must end in the future');
             return;
         }
 
@@ -55,6 +57,35 @@ export const CreateAuctionScreen: React.FC<CreateAuctionScreenProps> = ({ naviga
         } finally {
             setLoading(false);
         }
+    };
+
+    const onPickerChange = (event: any, selectedDate?: Date) => {
+        if (Platform.OS === 'android') {
+            setShowPicker(false);
+        }
+
+        if (selectedDate) {
+            setEndDate(selectedDate);
+        }
+    };
+
+    const togglePicker = (mode: 'date' | 'time') => {
+        if (showPicker && pickerMode === mode) {
+            setShowPicker(false);
+        } else {
+            setPickerMode(mode);
+            setShowPicker(true);
+        }
+    };
+
+    const formatEndDate = () => {
+        return endDate.toLocaleString(undefined, {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
     };
 
     return (
@@ -109,14 +140,65 @@ export const CreateAuctionScreen: React.FC<CreateAuctionScreenProps> = ({ naviga
                                 </View>
                             </View>
 
-                            <Input
-                                label="Auction End Date"
-                                placeholder="2026-12-31T23:59:59Z"
-                                value={endsAt}
-                                onChangeText={setEndsAt}
-                                autoCapitalize="none"
-                            />
-                            <Text style={styles.hint}>ISO 8601 Format: YYYY-MM-DDTHH:mm:ssZ</Text>
+                            <View style={[styles.datePickerSection, { marginTop: theme.spacing.m }]}>
+                                <Text style={styles.fieldLabel}>Auction End Date</Text>
+                                <TouchableOpacity
+                                    style={styles.pickerSelector}
+                                    onPress={() => togglePicker('date')}
+                                >
+                                    <View style={styles.selectorContent}>
+                                        <Text style={styles.pickerValue}>
+                                            {endDate.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}
+                                        </Text>
+                                        <Text style={styles.icon}>
+                                            {showPicker && pickerMode === 'date' ? '✅' : '📅'}
+                                        </Text>
+                                    </View>
+                                </TouchableOpacity>
+                                {showPicker && pickerMode === 'date' && (
+                                    <View style={Platform.OS === 'ios' ? styles.iosPickerContainer : styles.androidPickerSpacer}>
+                                        <DateTimePicker
+                                            value={endDate}
+                                            mode="date"
+                                            is24Hour={true}
+                                            onChange={onPickerChange}
+                                            minimumDate={new Date()}
+                                            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                                        />
+                                    </View>
+                                )}
+                            </View>
+
+                            <View style={[styles.datePickerSection, { marginTop: theme.spacing.m }]}>
+                                <Text style={styles.fieldLabel}>Auction End Time</Text>
+                                <TouchableOpacity
+                                    style={styles.pickerSelector}
+                                    onPress={() => togglePicker('time')}
+                                >
+                                    <View style={styles.selectorContent}>
+                                        <Text style={styles.pickerValue}>
+                                            {endDate.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                                        </Text>
+                                        <Text style={styles.icon}>
+                                            {showPicker && pickerMode === 'time' ? '✅' : '🕒'}
+                                        </Text>
+                                    </View>
+                                </TouchableOpacity>
+                                {showPicker && pickerMode === 'time' && (
+                                    <View style={Platform.OS === 'ios' ? styles.iosPickerContainer : styles.androidPickerSpacer}>
+                                        <DateTimePicker
+                                            value={endDate}
+                                            mode="time"
+                                            is24Hour={true}
+                                            onChange={onPickerChange}
+                                            minimumDate={new Date()}
+                                            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                                        />
+                                    </View>
+                                )}
+                            </View>
+
+                            <Text style={styles.hint}>Auction Ends: {formatEndDate()}</Text>
 
                             <Button
                                 title="Create Listing"
@@ -203,11 +285,54 @@ const styles = StyleSheet.create({
     hint: {
         ...theme.typography.caption,
         color: theme.colors.textTertiary,
-        marginTop: -theme.spacing.s,
+        marginTop: 4,
         marginBottom: theme.spacing.xl,
         fontSize: 10,
     },
     submitButton: {
         marginTop: theme.spacing.m,
+    },
+    datePickerSection: {
+        marginBottom: theme.spacing.s,
+    },
+    fieldLabel: {
+        ...theme.typography.label,
+        color: theme.colors.textTertiary,
+        marginBottom: theme.spacing.s,
+        fontSize: 12,
+        fontWeight: '700',
+        textTransform: 'uppercase',
+    },
+    pickerSelector: {
+        backgroundColor: theme.colors.surface2,
+        padding: theme.spacing.m,
+        borderRadius: theme.borderRadius.m,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        minHeight: 50,
+        justifyContent: 'center',
+    },
+    selectorContent: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    pickerValue: {
+        ...theme.typography.body,
+        color: theme.colors.text,
+    },
+    icon: {
+        fontSize: 18,
+    },
+    iosPickerContainer: {
+        backgroundColor: theme.colors.surface,
+        borderRadius: theme.borderRadius.l,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        overflow: 'hidden',
+        marginTop: theme.spacing.m,
+    },
+    androidPickerSpacer: {
+        marginTop: theme.spacing.s,
     },
 });
