@@ -6,6 +6,7 @@ import { RootStackParamList } from '../../App';
 import { Screen } from '../components/Screen';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
+import { Loader } from '../components/Loader';
 import { auctionApi } from '../api/auction';
 import t from '../i18n';
 import { theme } from '../utils/theme';
@@ -22,6 +23,7 @@ export const AuctionDetailScreen: React.FC<AuctionDetailScreenProps> = ({ naviga
     const [bidding, setBidding] = useState(false);
     const [error, setError] = useState('');
     const [timeLeft, setTimeLeft] = useState<number | null>(null);
+    const [waitingForSold, setWaitingForSold] = useState(false);
     const timerRef = useRef<any>(null);
 
     const { viewerCount, socket } = useSocket(auctionId);
@@ -44,8 +46,8 @@ export const AuctionDetailScreen: React.FC<AuctionDetailScreenProps> = ({ naviga
     // Handle timer hit zero
     useEffect(() => {
         if (timeLeft === 0 && auction && auction.status === 'ACTIVE') {
-            setAuction((prev: any) => prev ? { ...prev, status: 'SOLD' } : prev);
-            // Optionally we could show a final alert or let AUCTION_SOLD from socket handle it
+            // Show loader while waiting for AUCTION_SOLD event
+            setWaitingForSold(true);
         }
     }, [timeLeft, auction?.status]);
 
@@ -91,6 +93,8 @@ export const AuctionDetailScreen: React.FC<AuctionDetailScreenProps> = ({ naviga
 
         const handleAuctionSold = (data: any) => {
             console.log('[SOCKET EVENT] AUCTION_SOLD in Component:', data);
+            // Hide loader before showing popup
+            setWaitingForSold(false);
             Alert.alert('Auction Sold!', `Winner: ${data.winnerName}\nFinal Price: $${data.finalPrice}`);
             setAuction((prev: any) => prev ? { ...prev, status: 'SOLD' } : prev);
         };
@@ -155,7 +159,7 @@ export const AuctionDetailScreen: React.FC<AuctionDetailScreenProps> = ({ naviga
     if (loading) {
         return (
             <Screen style={styles.center}>
-                <Text style={styles.loadingText}>Loading treasures...</Text>
+                <Loader size="large" />
             </Screen>
         );
     }
@@ -293,6 +297,16 @@ export const AuctionDetailScreen: React.FC<AuctionDetailScreenProps> = ({ naviga
                     </View>
                 </ScrollView>
             </SafeAreaView>
+
+            {/* Loader overlay when waiting for auction sold */}
+            {waitingForSold && (
+                <View style={styles.loaderOverlay}>
+                    <View style={styles.loaderContainer}>
+                        <Loader size="large" />
+                        <Text style={styles.loaderText}>Finalizing auction...</Text>
+                    </View>
+                </View>
+            )}
         </View>
     );
 };
@@ -548,10 +562,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         padding: theme.spacing.xl,
     },
-    loadingText: {
-        ...theme.typography.body,
-        color: theme.colors.textSecondary,
-    },
+
     errorText: {
         ...theme.typography.body,
         color: theme.colors.error,
@@ -599,5 +610,26 @@ const styles = StyleSheet.create({
     timerSubLabel: {
         ...theme.typography.caption,
         color: theme.colors.textSecondary,
+    },
+    loaderOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 1000,
+    },
+    loaderContainer: {
+        padding: theme.spacing.xxl,
+        alignItems: 'center',
+    },
+    loaderText: {
+        ...theme.typography.body,
+        color: theme.colors.text,
+        marginTop: theme.spacing.l,
+        fontSize: 16,
     },
 });

@@ -7,6 +7,7 @@ import { RootStackParamList } from '../../App';
 import { Screen } from '../components/Screen';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
+import { Loader } from '../components/Loader';
 import { auctionApi } from '../api/auction';
 import t from '../i18n';
 import { theme } from '../utils/theme';
@@ -33,6 +34,8 @@ interface UserProfile {
     wonAuctions: number;
 }
 
+type FilterType = 'ALL' | 'ACTIVE' | 'SOLD' | 'EXPIRED';
+
 export const AuctionListScreen: React.FC<AuctionListScreenProps> = ({ navigation }) => {
     const [auctions, setAuctions] = useState<Auction[]>([]);
     const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -40,6 +43,7 @@ export const AuctionListScreen: React.FC<AuctionListScreenProps> = ({ navigation
     const [page, setPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
     const [loadingMore, setLoadingMore] = useState(false);
+    const [selectedFilter, setSelectedFilter] = useState<FilterType>('ALL');
     const { logout } = useAuth();
     const pulseAnim = useRef(new Animated.Value(0.6)).current;
 
@@ -144,6 +148,11 @@ export const AuctionListScreen: React.FC<AuctionListScreenProps> = ({ navigation
             ]
         );
     };
+
+    const filteredAuctions = auctions.filter(auction => {
+        if (selectedFilter === 'ALL') return true;
+        return auction.status === selectedFilter;
+    });
 
     const renderItem = ({ item }: { item: Auction }) => (
         <Card
@@ -251,9 +260,37 @@ export const AuctionListScreen: React.FC<AuctionListScreenProps> = ({ navigation
                     </View>
                 )}
 
+                {/* Filter Tabs */}
+                <View style={styles.filterContainer}>
+                    <TouchableOpacity
+                        style={[styles.filterTab, selectedFilter === 'ALL' && styles.filterTabActive]}
+                        onPress={() => setSelectedFilter('ALL')}
+                    >
+                        <Text style={[styles.filterText, selectedFilter === 'ALL' && styles.filterTextActive]}>All</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.filterTab, selectedFilter === 'ACTIVE' && styles.filterTabActive]}
+                        onPress={() => setSelectedFilter('ACTIVE')}
+                    >
+                        <Text style={[styles.filterText, selectedFilter === 'ACTIVE' && styles.filterTextActive]}>Active</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.filterTab, selectedFilter === 'SOLD' && styles.filterTabActive]}
+                        onPress={() => setSelectedFilter('SOLD')}
+                    >
+                        <Text style={[styles.filterText, selectedFilter === 'SOLD' && styles.filterTextActive]}>Sold</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.filterTab, selectedFilter === 'EXPIRED' && styles.filterTabActive]}
+                        onPress={() => setSelectedFilter('EXPIRED')}
+                    >
+                        <Text style={[styles.filterText, selectedFilter === 'EXPIRED' && styles.filterTextActive]}>Expire</Text>
+                    </TouchableOpacity>
+                </View>
+
                 {loading ? (
                     <View style={styles.center}>
-                        <Text style={styles.loadingText}>Searching for gems...</Text>
+                        <Loader size="large" />
                     </View>
                 ) : auctions.length === 0 ? (
                     <View style={styles.center}>
@@ -261,9 +298,14 @@ export const AuctionListScreen: React.FC<AuctionListScreenProps> = ({ navigation
                         <Text style={styles.emptyText}>{t.auction.noAuctions}</Text>
                         <Button title={t.common.retry} onPress={loadData} variant="outline" style={styles.retryButton} />
                     </View>
+                ) : filteredAuctions.length === 0 ? (
+                    <View style={styles.center}>
+                        <Text style={styles.emptyIcon}>🔍</Text>
+                        <Text style={styles.emptyText}>No {selectedFilter.toLowerCase()} auctions found</Text>
+                    </View>
                 ) : (
                     <FlatList
-                        data={auctions}
+                        data={filteredAuctions}
                         renderItem={renderItem}
                         numColumns={2}
                         keyExtractor={item => item.id}
@@ -469,10 +511,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         padding: theme.spacing.xl,
     },
-    loadingText: {
-        ...theme.typography.body,
-        color: theme.colors.textSecondary,
-    },
+
     emptyIcon: {
         fontSize: 64,
         marginBottom: theme.spacing.m,
@@ -560,5 +599,36 @@ const styles = StyleSheet.create({
     footerLoader: {
         paddingVertical: theme.spacing.xl,
         alignItems: 'center',
+    },
+    filterContainer: {
+        flexDirection: 'row',
+        paddingHorizontal: theme.spacing.l,
+        marginBottom: theme.spacing.m,
+        gap: theme.spacing.s,
+    },
+    filterTab: {
+        flex: 1,
+        paddingVertical: theme.spacing.s,
+        paddingHorizontal: theme.spacing.s,
+        borderRadius: theme.borderRadius.l,
+        backgroundColor: theme.colors.surface,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    filterTabActive: {
+        backgroundColor: theme.colors.primary,
+        borderColor: theme.colors.primary,
+    },
+    filterText: {
+        ...theme.typography.label,
+        color: theme.colors.textSecondary,
+        fontSize: 13,
+        fontWeight: '600',
+    },
+    filterTextActive: {
+        color: '#fff',
+        fontWeight: '700',
     },
 });
