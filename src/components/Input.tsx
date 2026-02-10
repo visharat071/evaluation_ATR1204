@@ -27,6 +27,7 @@ export const Input: React.FC<InputProps> = ({ label, error, style, onFocus, onBl
                 style={[
                     styles.input,
                     isFocused && styles.inputFocused,
+                    props.editable === false && styles.inputDisabled,
                     error ? styles.inputError : null,
                     style
                 ]}
@@ -57,12 +58,16 @@ const styles = StyleSheet.create({
         padding: theme.spacing.m,
         color: theme.colors.text,
         backgroundColor: theme.colors.surface1,
-        height: 54,
     },
     inputFocused: {
         borderColor: theme.colors.primary,
         backgroundColor: theme.colors.surface,
         ...theme.shadows.small,
+    },
+    inputDisabled: {
+        backgroundColor: theme.colors.surface2,
+        color: theme.colors.textTertiary,
+        borderColor: theme.colors.border,
     },
     inputError: {
         borderColor: theme.colors.error,

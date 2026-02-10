@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, Text, Image, ScrollView, Alert, SafeAreaView, TouchableOpacity, ViewStyle } from 'react-native';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { View, StyleSheet, Text, Image, ScrollView, Alert, TouchableOpacity, ViewStyle } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../App';
 
@@ -10,6 +10,7 @@ import { auctionApi } from '../api/auction';
 import t from '../i18n';
 import { theme } from '../utils/theme';
 import { useSocket } from '../hooks/useSocket';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 type AuctionDetailScreenProps = NativeStackScreenProps<RootStackParamList, 'AuctionDetail'>;
 
@@ -20,11 +21,39 @@ export const AuctionDetailScreen: React.FC<AuctionDetailScreenProps> = ({ naviga
     const [loading, setLoading] = useState(true);
     const [bidding, setBidding] = useState(false);
     const [error, setError] = useState('');
+    const [timeLeft, setTimeLeft] = useState<number | null>(null);
+    const timerRef = useRef<any>(null);
 
     const { viewerCount, socket } = useSocket(auctionId);
 
+    const startTimer = useCallback(() => {
+        if (timerRef.current) clearInterval(timerRef.current);
+        setTimeLeft(10);
+        timerRef.current = setInterval(() => {
+            setTimeLeft((prev) => {
+                if (prev === null) return null;
+                if (prev <= 1) {
+                    if (timerRef.current) clearInterval(timerRef.current);
+                    return 0;
+                }
+                return prev - 1;
+            });
+        }, 1000);
+    }, []);
+
+    // Handle timer hit zero
+    useEffect(() => {
+        if (timeLeft === 0 && auction && auction.status === 'ACTIVE') {
+            setAuction((prev: any) => prev ? { ...prev, status: 'SOLD' } : prev);
+            // Optionally we could show a final alert or let AUCTION_SOLD from socket handle it
+        }
+    }, [timeLeft, auction?.status]);
+
     useEffect(() => {
         loadAuction();
+        return () => {
+            if (timerRef.current) clearInterval(timerRef.current);
+        };
     }, [auctionId]);
 
     // Handle WebSocket events
@@ -39,7 +68,7 @@ export const AuctionDetailScreen: React.FC<AuctionDetailScreenProps> = ({ naviga
 
                 // Prepend the new bid to history
                 const newBidItem = {
-                    id: Date.now().toString(), // Temporary ID
+                    id: data.id || `${Date.now()}-${data.bidderName}-${Math.random().toString(36).substr(2, 9)}`,
                     amount: amount,
                     user: { email: data.bidderName },
                     createdAt: data.timestamp
@@ -53,6 +82,11 @@ export const AuctionDetailScreen: React.FC<AuctionDetailScreenProps> = ({ naviga
             });
             // Update bid input to next logical amount
             setBidAmount((amount + 1).toString());
+
+            // Start/Reset the 10s timer
+            if (auction?.status !== 'SOLD') {
+                startTimer();
+            }
         };
 
         const handleAuctionSold = (data: any) => {
@@ -84,7 +118,7 @@ export const AuctionDetailScreen: React.FC<AuctionDetailScreenProps> = ({ naviga
             const mappedData = {
                 ...data,
                 currentBid: parseFloat(data.currentPrice || data.startingPrice || '0'),
-                endTime: data.endsAt
+                endTime: data.endsAtIST || data.endsAt // Use endsAtIST if available, fallback to endsAt
             };
 
             setAuction(mappedData);
@@ -151,17 +185,15 @@ export const AuctionDetailScreen: React.FC<AuctionDetailScreenProps> = ({ naviga
 
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
                     <View style={styles.imageWrapper}>
-                        {auction.imageUrl ? (
-                            <Image
-                                source={{ uri: auction.imageUrl.startsWith('http') ? auction.imageUrl : `https://placehold.co/600x400?text=${encodeURIComponent(auction.title)}` }}
-                                style={styles.image}
-                                resizeMode="cover"
-                            />
-                        ) : (
-                            <View style={[styles.image, styles.noImage]}>
-                                <Text style={styles.noImageText}>🎨</Text>
-                            </View>
-                        )}
+                        <Image
+                            source={{
+                                uri: (auction.imageUrl && typeof auction.imageUrl === 'string' && auction.imageUrl.startsWith('http'))
+                                    ? auction.imageUrl
+                                    : `https://loremflickr.com/600/400/abstract?lock=${auctionId}`
+                            }}
+                            style={styles.image}
+                            resizeMode="cover"
+                        />
                         <View style={[styles.statusBadge, auction.status === 'SOLD' && styles.statusBadgeSold]}>
                             <Text style={styles.statusText}>{auction.status || 'ACTIVE'}</Text>
                         </View>
@@ -180,9 +212,36 @@ export const AuctionDetailScreen: React.FC<AuctionDetailScreenProps> = ({ naviga
                             </View>
                             <View style={[styles.statCard, styles.statCardSecondary]}>
                                 <Text style={styles.statLabel}>Ends On</Text>
-                                <Text style={styles.statValueCompact}>{new Date(auction.endTime).toLocaleDateString()}</Text>
+                                <Text style={styles.statValueCompact}>
+                                    {new Date(auction.endTime).toLocaleString(undefined, {
+                                        month: 'short',
+                                        day: 'numeric',
+                                        hour: '2-digit',
+                                        minute: '2-digit'
+                                    })}
+                                </Text>
                             </View>
                         </View>
+
+                        {timeLeft !== null && auction.status === 'ACTIVE' && (
+                            <View style={styles.timerContainer}>
+                                <View style={[
+                                    styles.timerCircle,
+                                    timeLeft <= 3 && styles.timerCircleUrgent
+                                ]}>
+                                    <Text style={[
+                                        styles.timerText,
+                                        timeLeft <= 3 && styles.timerTextUrgent
+                                    ]}>
+                                        {timeLeft}s
+                                    </Text>
+                                </View>
+                                <View>
+                                    <Text style={styles.timerLabel}>Ending Soon!</Text>
+                                    <Text style={styles.timerSubLabel}>New bid resets timer to 10s</Text>
+                                </View>
+                            </View>
+                        )}
 
                         <View style={styles.bidActionCard}>
                             <Text style={styles.bidSectionTitle}>Your Offer</Text>
@@ -192,6 +251,7 @@ export const AuctionDetailScreen: React.FC<AuctionDetailScreenProps> = ({ naviga
                                 onChangeText={setBidAmount}
                                 keyboardType="numeric"
                                 style={styles.bidInput}
+                                editable={auction.status === 'ACTIVE'}
                             />
                             <Button
                                 title={auction.status === 'SOLD' ? 'Auction Ended' : `Place Bid $${bidAmount}`}
@@ -499,5 +559,45 @@ const styles = StyleSheet.create({
     },
     retryButton: {
         width: 120,
+    },
+    timerContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(59, 130, 246, 0.08)',
+        padding: theme.spacing.m,
+        borderRadius: theme.borderRadius.xl,
+        marginBottom: theme.spacing.l,
+        borderWidth: 1,
+        borderColor: 'rgba(59, 130, 246, 0.2)',
+    },
+    timerCircle: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: theme.colors.primary,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: theme.spacing.m,
+        ...theme.shadows.small,
+    },
+    timerCircleUrgent: {
+        backgroundColor: '#EF4444',
+    },
+    timerText: {
+        ...theme.typography.h3,
+        color: '#FFFFFF',
+        fontSize: 18,
+    },
+    timerTextUrgent: {
+        fontWeight: '900',
+    },
+    timerLabel: {
+        ...theme.typography.bodySemi,
+        color: theme.colors.text,
+        fontSize: 16,
+    },
+    timerSubLabel: {
+        ...theme.typography.caption,
+        color: theme.colors.textSecondary,
     },
 });

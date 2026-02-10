@@ -28,8 +28,8 @@ export const theme = {
         glassBorder: 'rgba(255, 255, 255, 0.4)',
 
         // Gradients
-        gradientStart: '#6366F1',
-        gradientEnd: '#A855F7', // Purple 500
+        gradientStart: '#FAF9F6', // Alabaster
+        gradientEnd: '#F1F5F9', // Slate 100
     },
     spacing: {
         none: 0,

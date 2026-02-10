@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, Text, TouchableOpacity, Alert, SafeAreaView } from 'react-native';
+import { View, StyleSheet, Text, TouchableOpacity, Alert } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../App';
 
@@ -10,6 +10,7 @@ import { useAuth } from '../context/AuthContext';
 import { authApi } from '../api/auth';
 import t from '../i18n';
 import { theme } from '../utils/theme';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 type RegisterScreenProps = NativeStackScreenProps<RootStackParamList, 'Register'>;
 

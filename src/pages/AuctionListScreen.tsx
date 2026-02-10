@@ -1,5 +1,6 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { View, StyleSheet, Text, FlatList, Image, ImageStyle, TouchableOpacity, Animated, StatusBar } from 'react-native';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { View, StyleSheet, Text, FlatList, Image, ImageStyle, TouchableOpacity, Animated, StatusBar, ActivityIndicator, Alert } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../App';
 
@@ -19,6 +20,7 @@ interface Auction {
     currentBid: number;
     endTime: string;
     imageUrl?: string;
+    status: string;
 }
 
 type AuctionListScreenProps = NativeStackScreenProps<RootStackParamList, 'AuctionList'>;
@@ -35,12 +37,19 @@ export const AuctionListScreen: React.FC<AuctionListScreenProps> = ({ navigation
     const [auctions, setAuctions] = useState<Auction[]>([]);
     const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
     const [loading, setLoading] = useState(true);
+    const [page, setPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
+    const [loadingMore, setLoadingMore] = useState(false);
     const { logout } = useAuth();
     const pulseAnim = useRef(new Animated.Value(0.6)).current;
 
-    useEffect(() => {
-        loadData();
+    useFocusEffect(
+        useCallback(() => {
+            loadData();
+        }, [])
+    );
 
+    useEffect(() => {
         Animated.loop(
             Animated.sequence([
                 Animated.timing(pulseAnim, {
@@ -57,12 +66,17 @@ export const AuctionListScreen: React.FC<AuctionListScreenProps> = ({ navigation
         ).start();
     }, []);
 
-    const loadData = async () => {
-        setLoading(true);
+    const loadData = async (targetPage = 1, isRefresh = true) => {
+        if (isRefresh) {
+            setLoading(true);
+        } else {
+            setLoadingMore(true);
+        }
+
         try {
             const [auctionRes, profileRes]: any = await Promise.all([
-                auctionApi.getAuctions(),
-                userApi.getProfile()
+                auctionApi.getAuctions(targetPage, 10),
+                isRefresh ? userApi.getProfile() : Promise.resolve(null)
             ]);
 
             // Map Auctions
@@ -73,12 +87,24 @@ export const AuctionListScreen: React.FC<AuctionListScreenProps> = ({ navigation
                 description: item.description,
                 currentBid: parseFloat(item.currentPrice || item.startingPrice || '0'),
                 endTime: item.endsAt,
-                imageUrl: item.imageUrl
+                imageUrl: item.imageUrl,
+                status: item.status || 'ACTIVE'
             }));
-            setAuctions(mappedAuctions);
+
+            if (isRefresh) {
+                setAuctions(mappedAuctions);
+                setPage(1);
+            } else {
+                setAuctions(prev => [...prev, ...mappedAuctions]);
+                setPage(targetPage);
+            }
+
+            if (auctionRes.pagination) {
+                setTotalPages(auctionRes.pagination.totalPages || 1);
+            }
 
             // Map Profile
-            if (profileRes) {
+            if (isRefresh && profileRes) {
                 setUserProfile({
                     username: profileRes.email ? profileRes.email.split('@')[0] : (profileRes.username || 'User'),
                     balance: parseFloat(profileRes.balance || '0'),
@@ -89,7 +115,34 @@ export const AuctionListScreen: React.FC<AuctionListScreenProps> = ({ navigation
             console.error('[API] Failed to fetch data:', error);
         } finally {
             setLoading(false);
+            setLoadingMore(false);
         }
+    };
+
+    const handleLoadMore = () => {
+        if (!loadingMore && page < totalPages) {
+            loadData(page + 1, false);
+        }
+    };
+
+    const renderFooter = () => {
+        if (!loadingMore) return null;
+        return (
+            <View style={styles.footerLoader}>
+                <ActivityIndicator color={theme.colors.primary} />
+            </View>
+        );
+    };
+
+    const handleLogout = () => {
+        Alert.alert(
+            'Confirm Logout',
+            'Are you sure you want to log out?',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Yes', onPress: logout }
+            ]
+        );
     };
 
     const renderItem = ({ item }: { item: Auction }) => (
@@ -98,20 +151,33 @@ export const AuctionListScreen: React.FC<AuctionListScreenProps> = ({ navigation
             style={styles.card}
         >
             <View style={styles.imageContainer}>
-                {item.imageUrl ? (
-                    <Image
-                        source={{ uri: item.imageUrl.startsWith('http') ? item.imageUrl : `https://placehold.co/600x400?text=${encodeURIComponent(item.title)}` }}
-                        style={styles.image as ImageStyle}
-                        resizeMode="cover"
-                    />
-                ) : (
-                    <View style={[styles.image, { backgroundColor: theme.colors.surface2, justifyContent: 'center', alignItems: 'center' }]}>
-                        <Text style={styles.noImageText}>🎨</Text>
+                <Image
+                    source={{
+                        uri: (item.imageUrl && typeof item.imageUrl === 'string' && item.imageUrl.startsWith('http'))
+                            ? item.imageUrl
+                            : `https://loremflickr.com/600/400/abstract?lock=${item.id}`
+                    }}
+                    style={styles.image as ImageStyle}
+                    resizeMode="cover"
+                />
+                {item.status === 'ACTIVE' && (
+                    <View style={styles.glassBadge}>
+                        <Animated.View style={[styles.pulseDot, { opacity: pulseAnim }]} />
+                        <Text style={styles.liveText}>LIVE</Text>
                     </View>
                 )}
-                <View style={styles.glassBadge}>
-                    <Animated.View style={[styles.pulseDot, { opacity: pulseAnim }]} />
-                    <Text style={styles.liveText}>LIVE</Text>
+                <View style={[
+                    styles.activeBadge,
+                    item.status === 'SOLD' && styles.soldBadge,
+                    item.status === 'EXPIRED' && styles.expiredBadge
+                ]}>
+                    <Text style={[
+                        styles.activeText,
+                        item.status === 'SOLD' && styles.soldText,
+                        item.status === 'EXPIRED' && styles.expiredText
+                    ]}>
+                        {item.status === 'ACTIVE' ? 'Active' : item.status}
+                    </Text>
                 </View>
             </View>
 
@@ -120,9 +186,6 @@ export const AuctionListScreen: React.FC<AuctionListScreenProps> = ({ navigation
                     <View style={styles.titleWrapper}>
                         <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
                         <Text style={styles.cardDescription} numberOfLines={1}>{item.description}</Text>
-                    </View>
-                    <View style={styles.timeBadge}>
-                        <Text style={styles.timeText}>Active</Text>
                     </View>
                 </View>
 
@@ -155,7 +218,7 @@ export const AuctionListScreen: React.FC<AuctionListScreenProps> = ({ navigation
                         >
                             <Text style={styles.headerIconText}>+</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity onPress={logout} style={styles.headerIconButton}>
+                        <TouchableOpacity onPress={handleLogout} style={styles.headerIconButton}>
                             <Text style={styles.headerIconText}>🚪</Text>
                         </TouchableOpacity>
                     </View>
@@ -202,10 +265,15 @@ export const AuctionListScreen: React.FC<AuctionListScreenProps> = ({ navigation
                     <FlatList
                         data={auctions}
                         renderItem={renderItem}
+                        numColumns={2}
                         keyExtractor={item => item.id}
                         contentContainerStyle={styles.list}
+                        columnWrapperStyle={styles.row}
                         refreshing={loading}
-                        onRefresh={loadData}
+                        onRefresh={() => loadData(1, true)}
+                        onEndReached={handleLoadMore}
+                        onEndReachedThreshold={0.5}
+                        ListFooterComponent={renderFooter}
                         showsVerticalScrollIndicator={false}
                     />
                 )}
@@ -261,21 +329,27 @@ const styles = StyleSheet.create({
         color: theme.colors.text,
     },
     list: {
-        paddingHorizontal: theme.spacing.xl,
+        paddingHorizontal: theme.spacing.m,
         paddingBottom: theme.spacing.xxl,
     },
+    row: {
+        justifyContent: 'space-between',
+        paddingHorizontal: theme.spacing.s,
+    },
     card: {
+        flex: 1,
         backgroundColor: theme.colors.surface,
-        borderRadius: theme.borderRadius.xl,
+        borderRadius: theme.borderRadius.l,
         padding: 0,
         overflow: 'hidden',
         borderWidth: 1,
         borderColor: theme.colors.border,
-        marginBottom: theme.spacing.l,
-        ...theme.shadows.medium,
+        margin: theme.spacing.xs,
+        marginBottom: theme.spacing.m,
+        ...theme.shadows.small,
     },
     imageContainer: {
-        height: 200,
+        height: 120,
         position: 'relative',
     },
     image: {
@@ -283,17 +357,17 @@ const styles = StyleSheet.create({
         height: '100%',
     },
     noImageText: {
-        fontSize: 40,
+        fontSize: 32,
     },
     glassBadge: {
         position: 'absolute',
-        top: theme.spacing.m,
-        right: theme.spacing.m,
+        top: theme.spacing.s,
+        right: theme.spacing.s,
         backgroundColor: 'rgba(16, 185, 129, 0.9)', // Emerald with opacity
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 10,
-        paddingVertical: 5,
+        paddingHorizontal: 8,
+        paddingVertical: 3,
         borderRadius: theme.borderRadius.full,
         borderWidth: 1,
         borderColor: 'rgba(255, 255, 255, 0.3)',
@@ -307,12 +381,12 @@ const styles = StyleSheet.create({
     },
     liveText: {
         color: '#fff',
-        fontSize: 11,
+        fontSize: 9,
         fontWeight: '800',
-        letterSpacing: 1,
+        letterSpacing: 0.5,
     },
     cardContent: {
-        padding: theme.spacing.l,
+        padding: theme.spacing.m,
     },
     cardHeader: {
         flexDirection: 'row',
@@ -325,24 +399,40 @@ const styles = StyleSheet.create({
         marginRight: theme.spacing.m,
     },
     cardTitle: {
-        ...theme.typography.h3,
+        fontSize: 16,
+        fontWeight: '700',
         color: theme.colors.text,
-        marginBottom: 2,
+        marginBottom: 1,
     },
     cardDescription: {
         ...theme.typography.caption,
         color: theme.colors.textSecondary,
     },
-    timeBadge: {
-        backgroundColor: theme.colors.surface2,
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: theme.borderRadius.s,
+    activeBadge: {
+        position: 'absolute',
+        bottom: theme.spacing.s,
+        left: theme.spacing.s,
+        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 4,
     },
-    timeText: {
+    soldBadge: {
+        backgroundColor: 'rgba(239, 68, 68, 0.9)',
+    },
+    expiredBadge: {
+        backgroundColor: 'rgba(100, 116, 139, 0.9)',
+    },
+    activeText: {
         ...theme.typography.label,
         color: theme.colors.primary,
-        fontSize: 10,
+        fontSize: 8,
+    },
+    soldText: {
+        color: '#fff',
+    },
+    expiredText: {
+        color: '#fff',
     },
     footerRow: {
         flexDirection: 'row',
@@ -356,21 +446,21 @@ const styles = StyleSheet.create({
         marginBottom: 2,
     },
     bidValue: {
-        ...theme.typography.h2,
+        ...theme.typography.h3,
         color: theme.colors.text,
-        fontSize: 22,
+        fontSize: 16,
     },
     actionIcon: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
+        width: 28,
+        height: 28,
+        borderRadius: 14,
         backgroundColor: theme.colors.primary,
         justifyContent: 'center',
         alignItems: 'center',
     },
     actionIconText: {
         color: '#fff',
-        fontSize: 18,
+        fontSize: 14,
         fontWeight: 'bold',
     },
     center: {
@@ -466,5 +556,9 @@ const styles = StyleSheet.create({
         width: 1,
         height: '60%',
         backgroundColor: theme.colors.border,
+    },
+    footerLoader: {
+        paddingVertical: theme.spacing.xl,
+        alignItems: 'center',
     },
 });

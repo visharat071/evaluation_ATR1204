@@ -1,7 +1,8 @@
 import React, { ReactNode } from 'react';
-import { View, StyleSheet, StatusBar, SafeAreaView } from 'react-native';
+import { View, StyleSheet, StatusBar } from 'react-native';
 import { theme } from '../utils/theme';
 import { GradientBackground } from './GradientBackground';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface ScreenProps {
     children: ReactNode;

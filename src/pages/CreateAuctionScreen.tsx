@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, Text, ScrollView, Alert, SafeAreaView, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, StyleSheet, Text, ScrollView, Alert, TouchableOpacity, KeyboardAvoidingView, Platform, } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../App';
 
@@ -9,6 +9,7 @@ import { Input } from '../components/Input';
 import { auctionApi } from '../api/auction';
 import t from '../i18n';
 import { theme } from '../utils/theme';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 type CreateAuctionScreenProps = NativeStackScreenProps<RootStackParamList, 'CreateAuction'>;
 
