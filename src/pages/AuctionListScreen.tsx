@@ -1,18 +1,24 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { View, StyleSheet, Text, FlatList, Image, ImageStyle, TouchableOpacity, Animated, StatusBar, ActivityIndicator, Alert } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import React, { useEffect, useState, useRef } from 'react';
+import { View, StyleSheet, Text, FlatList, Image, ImageStyle, TouchableOpacity, Animated, StatusBar, ActivityIndicator } from 'react-native';
+import { CompositeScreenProps } from '@react-navigation/native';
+import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../../App';
+import { TabParamList, RootStackParamList } from '../../App';
+import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Screen } from '../components/Screen';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { Loader } from '../components/Loader';
 import { auctionApi } from '../api/auction';
+import { userApi } from '../api/user';
 import t from '../i18n';
 import { theme } from '../utils/theme';
-import { useAuth } from '../context/AuthContext';
-import { SafeAreaView } from 'react-native-safe-area-context';
+
+type AuctionListScreenProps = CompositeScreenProps<
+    BottomTabScreenProps<TabParamList, 'Home'>,
+    NativeStackScreenProps<RootStackParamList>
+>;
 
 interface Auction {
     id: string;
@@ -24,12 +30,8 @@ interface Auction {
     status: string;
 }
 
-type AuctionListScreenProps = NativeStackScreenProps<RootStackParamList, 'AuctionList'>;
-
-import { userApi } from '../api/user';
-
 interface UserProfile {
-    username: string;
+    username?: string;
     balance: number;
     wonAuctions: number;
 }
@@ -37,21 +39,62 @@ interface UserProfile {
 type FilterType = 'ALL' | 'ACTIVE' | 'SOLD' | 'EXPIRED';
 
 export const AuctionListScreen: React.FC<AuctionListScreenProps> = ({ navigation }) => {
-    const [auctions, setAuctions] = useState<Auction[]>([]);
-    const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [page, setPage] = useState(1);
-    const [totalPages, setTotalPages] = useState(1);
-    const [loadingMore, setLoadingMore] = useState(false);
+    const queryClient = useQueryClient();
     const [selectedFilter, setSelectedFilter] = useState<FilterType>('ALL');
-    const { logout } = useAuth();
     const pulseAnim = useRef(new Animated.Value(0.6)).current;
 
-    useFocusEffect(
-        useCallback(() => {
-            loadData();
-        }, [])
-    );
+    // 1. User Profile Query
+    const { data: userProfile } = useQuery({
+        queryKey: ['userProfile'],
+        queryFn: () => userApi.getProfile(),
+        select: (res: any) => ({
+            username: res.email ? res.email.split('@')[0] : (res.username || 'User'),
+            balance: parseFloat(res.balance || '0'),
+            wonAuctions: Array.isArray(res.wonAuctions) ? res.wonAuctions.length : 0
+        }) as UserProfile,
+    });
+
+    // 2. Auctions Infinite Query
+    const {
+        data,
+        fetchNextPage,
+        hasNextPage,
+        isFetchingNextPage,
+        isLoading,
+        refetch,
+        isRefetching
+    } = useInfiniteQuery({
+        queryKey: ['auctions', selectedFilter],
+        queryFn: async ({ pageParam = 1 }) => {
+            const res: any = await auctionApi.getAuctions(pageParam, 10);
+            return {
+                auctions: (res.auctions || []).map((item: any) => ({
+                    id: item.id.toString(),
+                    title: item.title,
+                    description: item.description,
+                    currentBid: parseFloat(item.currentPrice || item.startingPrice || '0'),
+                    endTime: item.endsAt,
+                    imageUrl: item.imageUrl,
+                    status: item.status || 'ACTIVE'
+                })),
+                totalPages: res.pagination?.totalPages || 1,
+                nextPage: pageParam + 1
+            };
+        },
+        initialPageParam: 1,
+        getNextPageParam: (lastPage, allPages) => {
+            return lastPage.nextPage <= lastPage.totalPages ? lastPage.nextPage : undefined;
+        },
+    });
+
+    // Flatten pages into a single array
+    const auctions = data?.pages.flatMap(page => page.auctions) || [];
+
+    // Filter validation
+    const filteredAuctions = auctions.filter(auction => {
+        if (selectedFilter === 'ALL') return true;
+        return auction.status === selectedFilter;
+    });
 
     useEffect(() => {
         Animated.loop(
@@ -70,89 +113,20 @@ export const AuctionListScreen: React.FC<AuctionListScreenProps> = ({ navigation
         ).start();
     }, []);
 
-    const loadData = async (targetPage = 1, isRefresh = true) => {
-        if (isRefresh) {
-            setLoading(true);
-        } else {
-            setLoadingMore(true);
-        }
-
-        try {
-            const [auctionRes, profileRes]: any = await Promise.all([
-                auctionApi.getAuctions(targetPage, 10),
-                isRefresh ? userApi.getProfile() : Promise.resolve(null)
-            ]);
-
-            // Map Auctions
-            const rawAuctions = auctionRes.auctions || [];
-            const mappedAuctions = rawAuctions.map((item: any) => ({
-                id: item.id.toString(),
-                title: item.title,
-                description: item.description,
-                currentBid: parseFloat(item.currentPrice || item.startingPrice || '0'),
-                endTime: item.endsAt,
-                imageUrl: item.imageUrl,
-                status: item.status || 'ACTIVE'
-            }));
-
-            if (isRefresh) {
-                setAuctions(mappedAuctions);
-                setPage(1);
-            } else {
-                setAuctions(prev => [...prev, ...mappedAuctions]);
-                setPage(targetPage);
-            }
-
-            if (auctionRes.pagination) {
-                setTotalPages(auctionRes.pagination.totalPages || 1);
-            }
-
-            // Map Profile
-            if (isRefresh && profileRes) {
-                setUserProfile({
-                    username: profileRes.email ? profileRes.email.split('@')[0] : (profileRes.username || 'User'),
-                    balance: parseFloat(profileRes.balance || '0'),
-                    wonAuctions: Array.isArray(profileRes.wonAuctions) ? profileRes.wonAuctions.length : 0
-                });
-            }
-        } catch (error) {
-            console.error('[API] Failed to fetch data:', error);
-        } finally {
-            setLoading(false);
-            setLoadingMore(false);
-        }
-    };
-
     const handleLoadMore = () => {
-        if (!loadingMore && page < totalPages) {
-            loadData(page + 1, false);
+        if (hasNextPage && !isFetchingNextPage) {
+            fetchNextPage();
         }
     };
 
     const renderFooter = () => {
-        if (!loadingMore) return null;
+        if (!isFetchingNextPage) return null;
         return (
             <View style={styles.footerLoader}>
                 <ActivityIndicator color={theme.colors.primary} />
             </View>
         );
     };
-
-    const handleLogout = () => {
-        Alert.alert(
-            'Confirm Logout',
-            'Are you sure you want to log out?',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Yes', onPress: logout }
-            ]
-        );
-    };
-
-    const filteredAuctions = auctions.filter(auction => {
-        if (selectedFilter === 'ALL') return true;
-        return auction.status === selectedFilter;
-    });
 
     const renderItem = ({ item }: { item: Auction }) => (
         <Card
@@ -214,112 +188,108 @@ export const AuctionListScreen: React.FC<AuctionListScreenProps> = ({ navigation
     return (
         <View style={styles.screen}>
             <StatusBar barStyle="dark-content" />
-            <SafeAreaView style={styles.safeArea}>
-                <View style={styles.header}>
-                    <View>
-                        <Text style={styles.headerSubtitle}>Exclusive Auctions</Text>
-                        <Text style={styles.headerTitle}>LiveBid</Text>
-                    </View>
-                    <View style={styles.headerActions}>
-                        <TouchableOpacity
-                            onPress={() => navigation.navigate('CreateAuction')}
-                            style={styles.headerIconButton}
-                        >
-                            <Text style={styles.headerIconText}>+</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={handleLogout} style={styles.headerIconButton}>
-                            <Text style={styles.headerIconText}>🚪</Text>
-                        </TouchableOpacity>
-                    </View>
+            <SafeAreaView style={styles.safeArea} />
+            <View style={styles.header}>
+                <View>
+                    <Text style={styles.headerSubtitle}>Exclusive Auctions</Text>
+                    <Text style={styles.headerTitle}>LiveBid</Text>
                 </View>
-
-                {userProfile && (
-                    <View style={styles.profileCardWrapper}>
-                        <Card style={styles.profileCard}>
-                            <View style={styles.profileInfo}>
-                                <View style={styles.profileAvatar}>
-                                    <Text style={styles.avatarText}>{userProfile.username[0].toUpperCase()}</Text>
-                                </View>
-                                <View>
-                                    <Text style={styles.profileName}>{userProfile.username}</Text>
-                                    <Text style={styles.profileLabel}>Investor Profile</Text>
-                                </View>
-                            </View>
-                            <View style={styles.profileStats}>
-                                <View style={styles.statItem}>
-                                    <Text style={styles.statTitle}>Balance</Text>
-                                    <Text style={styles.balanceValue}>${userProfile.balance.toLocaleString()}</Text>
-                                </View>
-                                <View style={styles.statDivider} />
-                                <View style={styles.statItem}>
-                                    <Text style={styles.statTitle}>Won</Text>
-                                    <Text style={styles.wonValue}>{userProfile.wonAuctions}</Text>
-                                </View>
-                            </View>
-                        </Card>
-                    </View>
-                )}
-
-                {/* Filter Tabs */}
-                <View style={styles.filterContainer}>
+                <View style={styles.headerActions}>
                     <TouchableOpacity
-                        style={[styles.filterTab, selectedFilter === 'ALL' && styles.filterTabActive]}
-                        onPress={() => setSelectedFilter('ALL')}
+                        onPress={() => navigation.navigate('CreateAuction')}
+                        style={styles.headerIconButton}
                     >
-                        <Text style={[styles.filterText, selectedFilter === 'ALL' && styles.filterTextActive]}>All</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={[styles.filterTab, selectedFilter === 'ACTIVE' && styles.filterTabActive]}
-                        onPress={() => setSelectedFilter('ACTIVE')}
-                    >
-                        <Text style={[styles.filterText, selectedFilter === 'ACTIVE' && styles.filterTextActive]}>Active</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={[styles.filterTab, selectedFilter === 'SOLD' && styles.filterTabActive]}
-                        onPress={() => setSelectedFilter('SOLD')}
-                    >
-                        <Text style={[styles.filterText, selectedFilter === 'SOLD' && styles.filterTextActive]}>Sold</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={[styles.filterTab, selectedFilter === 'EXPIRED' && styles.filterTabActive]}
-                        onPress={() => setSelectedFilter('EXPIRED')}
-                    >
-                        <Text style={[styles.filterText, selectedFilter === 'EXPIRED' && styles.filterTextActive]}>Expire</Text>
+                        <Text style={styles.headerIconText}>+</Text>
                     </TouchableOpacity>
                 </View>
+            </View>
 
-                {loading ? (
-                    <View style={styles.center}>
-                        <Loader size="large" />
-                    </View>
-                ) : auctions.length === 0 ? (
-                    <View style={styles.center}>
-                        <Text style={styles.emptyIcon}>📦</Text>
-                        <Text style={styles.emptyText}>{t.auction.noAuctions}</Text>
-                        <Button title={t.common.retry} onPress={loadData} variant="outline" style={styles.retryButton} />
-                    </View>
-                ) : filteredAuctions.length === 0 ? (
-                    <View style={styles.center}>
-                        <Text style={styles.emptyIcon}>🔍</Text>
-                        <Text style={styles.emptyText}>No {selectedFilter.toLowerCase()} auctions found</Text>
-                    </View>
-                ) : (
-                    <FlatList
-                        data={filteredAuctions}
-                        renderItem={renderItem}
-                        numColumns={2}
-                        keyExtractor={item => item.id}
-                        contentContainerStyle={styles.list}
-                        columnWrapperStyle={styles.row}
-                        refreshing={loading}
-                        onRefresh={() => loadData(1, true)}
-                        onEndReached={handleLoadMore}
-                        onEndReachedThreshold={0.5}
-                        ListFooterComponent={renderFooter}
-                        showsVerticalScrollIndicator={false}
-                    />
-                )}
-            </SafeAreaView>
+            {userProfile && (
+                <View style={styles.profileCardWrapper}>
+                    <Card style={styles.profileCard}>
+                        <View style={styles.profileInfo}>
+                            <View style={styles.profileAvatar}>
+                                <Text style={styles.avatarText}>{(userProfile.username?.[0] || '?').toUpperCase()}</Text>
+                            </View>
+                            <View>
+                                <Text style={styles.profileName}>{userProfile.username || 'User'}</Text>
+                                <Text style={styles.profileLabel}>Investor Profile</Text>
+                            </View>
+                        </View>
+                        <View style={styles.profileStats}>
+                            <View style={styles.statItem}>
+                                <Text style={styles.statTitle}>Balance</Text>
+                                <Text style={styles.balanceValue}>${userProfile.balance.toLocaleString()}</Text>
+                            </View>
+                            <View style={styles.statDivider} />
+                            <View style={styles.statItem}>
+                                <Text style={styles.statTitle}>Won</Text>
+                                <Text style={styles.wonValue}>{userProfile.wonAuctions}</Text>
+                            </View>
+                        </View>
+                    </Card>
+                </View>
+            )}
+
+            {/* Filter Tabs */}
+            <View style={styles.filterContainer}>
+                <TouchableOpacity
+                    style={[styles.filterTab, selectedFilter === 'ALL' && styles.filterTabActive]}
+                    onPress={() => setSelectedFilter('ALL')}
+                >
+                    <Text style={[styles.filterText, selectedFilter === 'ALL' && styles.filterTextActive]}>All</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[styles.filterTab, selectedFilter === 'ACTIVE' && styles.filterTabActive]}
+                    onPress={() => setSelectedFilter('ACTIVE')}
+                >
+                    <Text style={[styles.filterText, selectedFilter === 'ACTIVE' && styles.filterTextActive]}>Active</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[styles.filterTab, selectedFilter === 'SOLD' && styles.filterTabActive]}
+                    onPress={() => setSelectedFilter('SOLD')}
+                >
+                    <Text style={[styles.filterText, selectedFilter === 'SOLD' && styles.filterTextActive]}>Sold</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[styles.filterTab, selectedFilter === 'EXPIRED' && styles.filterTabActive]}
+                    onPress={() => setSelectedFilter('EXPIRED')}
+                >
+                    <Text style={[styles.filterText, selectedFilter === 'EXPIRED' && styles.filterTextActive]}>Expire</Text>
+                </TouchableOpacity>
+            </View>
+
+            {isLoading ? (
+                <View style={styles.center}>
+                    <Loader size="large" />
+                </View>
+            ) : auctions.length === 0 ? (
+                <View style={styles.center}>
+                    <Text style={styles.emptyIcon}>📦</Text>
+                    <Text style={styles.emptyText}>{t.auction.noAuctions}</Text>
+                    <Button title={t.common.retry} onPress={() => refetch()} variant="outline" style={styles.retryButton} />
+                </View>
+            ) : filteredAuctions.length === 0 ? (
+                <View style={styles.center}>
+                    <Text style={styles.emptyIcon}>🔍</Text>
+                    <Text style={styles.emptyText}>No {selectedFilter.toLowerCase()} auctions found</Text>
+                </View>
+            ) : (
+                <FlatList
+                    data={filteredAuctions}
+                    renderItem={renderItem}
+                    numColumns={2}
+                    keyExtractor={item => item.id}
+                    contentContainerStyle={styles.list}
+                    columnWrapperStyle={styles.row}
+                    refreshing={isRefetching && !isFetchingNextPage}
+                    onRefresh={() => refetch()}
+                    onEndReached={handleLoadMore}
+                    onEndReachedThreshold={0.5}
+                    ListFooterComponent={renderFooter}
+                    showsVerticalScrollIndicator={false}
+                />
+            )}
         </View>
     );
 };

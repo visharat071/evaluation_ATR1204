@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, ReactNode, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import EncryptedStorage from 'react-native-encrypted-storage';
 import { api } from '../api/client';
 
 interface AuthContextType {
@@ -21,8 +21,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const loadStorageData = async () => {
         try {
             setIsLoading(true);
-            const savedToken = await AsyncStorage.getItem('auth_token');
-            const savedUser = await AsyncStorage.getItem('auth_user');
+            const savedToken = await EncryptedStorage.getItem('auth_token');
+            const savedUser = await EncryptedStorage.getItem('auth_user');
 
             if (savedToken && savedUser) {
                 api.setToken(savedToken);
@@ -38,8 +38,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const login = async (token: string, userData: any) => {
         setIsLoading(true);
         try {
-            await AsyncStorage.setItem('auth_token', token);
-            await AsyncStorage.setItem('auth_user', JSON.stringify(userData));
+            await EncryptedStorage.setItem('auth_token', token);
+            await EncryptedStorage.setItem('auth_user', JSON.stringify(userData));
             api.setToken(token);
             setUser(userData);
         } catch (error) {
@@ -50,8 +50,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     const logout = async () => {
-        await AsyncStorage.removeItem('auth_token');
-        await AsyncStorage.removeItem('auth_user');
+        await EncryptedStorage.removeItem('auth_token');
+        await EncryptedStorage.removeItem('auth_user');
         api.setToken(null);
         setUser(null);
     };
@@ -74,3 +74,4 @@ export const useAuth = () => {
     }
     return context;
 };
+

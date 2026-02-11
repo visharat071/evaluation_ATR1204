@@ -22,7 +22,7 @@ export const theme = {
         success: '#10B981', // Emerald 500
         warning: '#F59E0B', // Amber 500
         border: '#E2E8F0', // Slate 200
-
+        black: '#000000',
         // Glassmorphism
         glass: 'rgba(255, 255, 255, 0.7)',
         glassBorder: 'rgba(255, 255, 255, 0.4)',

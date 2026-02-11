@@ -49,7 +49,7 @@ export const CreateAuctionScreen: React.FC<CreateAuctionScreenProps> = ({ naviga
                 endsAt: endDate.toISOString()
             });
             Alert.alert('Success', 'Auction created successfully!', [
-                { text: 'OK', onPress: () => navigation.navigate('AuctionList') }
+                { text: 'OK', onPress: () => navigation.navigate('MainTabs') }
             ]);
         } catch (error: any) {
             const msg = error.data?.message || t.common.error;

@@ -1,6 +1,6 @@
 import { useEffect, useCallback, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import EncryptedStorage from 'react-native-encrypted-storage';
 import { API_CONFIG } from '../api/config';
 
 interface SocketState {
@@ -18,7 +18,7 @@ export const useSocket = (auctionId?: string) => {
 
     const connect = useCallback(async () => {
         try {
-            const token = await AsyncStorage.getItem('auth_token');
+            const token = await EncryptedStorage.getItem('auth_token');
 
             if (!token) {
                 console.warn('[SOCKET] No token found, cannot connect');

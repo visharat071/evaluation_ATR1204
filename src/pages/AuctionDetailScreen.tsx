@@ -15,13 +15,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 type AuctionDetailScreenProps = NativeStackScreenProps<RootStackParamList, 'AuctionDetail'>;
 
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+
 export const AuctionDetailScreen: React.FC<AuctionDetailScreenProps> = ({ navigation, route }) => {
     const { auctionId } = route.params;
-    const [auction, setAuction] = useState<any>(null);
+    const queryClient = useQueryClient();
     const [bidAmount, setBidAmount] = useState('');
-    const [loading, setLoading] = useState(true);
     const [bidding, setBidding] = useState(false);
-    const [error, setError] = useState('');
     const [timeLeft, setTimeLeft] = useState<number | null>(null);
     const [waitingForSold, setWaitingForSold] = useState(false);
     const timerRef = useRef<any>(null);
@@ -43,20 +43,38 @@ export const AuctionDetailScreen: React.FC<AuctionDetailScreenProps> = ({ naviga
         }, 1000);
     }, []);
 
+    // Query for Auction Details
+    const { data: auction, isLoading, error, refetch } = useQuery({
+        queryKey: ['auction', auctionId],
+        queryFn: async () => {
+            const data: any = await auctionApi.getAuction(auctionId);
+            return {
+                ...data,
+                currentBid: parseFloat(data.currentPrice || data.startingPrice || '0'),
+                endTime: data.endsAtIST || data.endsAt
+            };
+        },
+    });
+
+    // Initialize bid amount when auction loads
+    useEffect(() => {
+        if (auction) {
+            setBidAmount((auction.currentBid + 1).toString());
+        }
+    }, [auction?.currentBid]);
+
     // Handle timer hit zero
     useEffect(() => {
         if (timeLeft === 0 && auction && auction.status === 'ACTIVE') {
-            // Show loader while waiting for AUCTION_SOLD event
             setWaitingForSold(true);
         }
     }, [timeLeft, auction?.status]);
 
     useEffect(() => {
-        loadAuction();
         return () => {
             if (timerRef.current) clearInterval(timerRef.current);
         };
-    }, [auctionId]);
+    }, []);
 
     // Handle WebSocket events
     useEffect(() => {
@@ -65,38 +83,42 @@ export const AuctionDetailScreen: React.FC<AuctionDetailScreenProps> = ({ naviga
         const handleNewBid = (data: any) => {
             const amount = Number(data.amount);
             console.log('[SOCKET EVENT] NEW_BID in Component:', data);
-            setAuction((prev: any) => {
-                if (!prev) return prev;
 
-                // Prepend the new bid to history
+            // Update Cache
+            queryClient.setQueryData(['auction', auctionId], (oldData: any) => {
+                if (!oldData) return oldData;
                 const newBidItem = {
                     id: data.id || `${Date.now()}-${data.bidderName}-${Math.random().toString(36).substr(2, 9)}`,
                     amount: amount,
                     user: { email: data.bidderName },
                     createdAt: data.timestamp
                 };
-
                 return {
-                    ...prev,
+                    ...oldData,
                     currentBid: amount,
-                    bids: [newBidItem, ...(prev.bids || [])]
+                    bids: [newBidItem, ...(oldData.bids || [])]
                 };
             });
+
             // Update bid input to next logical amount
             setBidAmount((amount + 1).toString());
 
             // Start/Reset the 10s timer
-            if (auction?.status !== 'SOLD') {
+            // We need to access the current status from cache or assume active if we get a bid
+            const currentAuction = queryClient.getQueryData(['auction', auctionId]) as any;
+            if (currentAuction?.status !== 'SOLD') {
                 startTimer();
             }
         };
 
         const handleAuctionSold = (data: any) => {
             console.log('[SOCKET EVENT] AUCTION_SOLD in Component:', data);
-            // Hide loader before showing popup
             setWaitingForSold(false);
             Alert.alert('Auction Sold!', `Winner: ${data.winnerName}\nFinal Price: $${data.finalPrice}`);
-            setAuction((prev: any) => prev ? { ...prev, status: 'SOLD' } : prev);
+
+            queryClient.setQueryData(['auction', auctionId], (oldData: any) => {
+                return oldData ? { ...oldData, status: 'SOLD' } : oldData;
+            });
         };
 
         const handleAuctionEndingSoon = (data: any) => {
@@ -113,27 +135,7 @@ export const AuctionDetailScreen: React.FC<AuctionDetailScreenProps> = ({ naviga
             socket.off('AUCTION_SOLD', handleAuctionSold);
             socket.off('AUCTION_ENDING_SOON', handleAuctionEndingSoon);
         };
-    }, [socket]);
-
-    const loadAuction = async () => {
-        setLoading(true);
-        try {
-            const data: any = await auctionApi.getAuction(auctionId);
-            const mappedData = {
-                ...data,
-                currentBid: parseFloat(data.currentPrice || data.startingPrice || '0'),
-                endTime: data.endsAtIST || data.endsAt // Use endsAtIST if available, fallback to endsAt
-            };
-
-            setAuction(mappedData);
-            setBidAmount((mappedData.currentBid + 1).toString());
-        } catch (err) {
-            console.error('[API] Failed to load auction:', err);
-            setError(t.common.error);
-        } finally {
-            setLoading(false);
-        }
-    };
+    }, [socket, queryClient, auctionId, startTimer]);
 
     const handlePlaceBid = async () => {
         const amount = parseFloat(bidAmount);
@@ -156,7 +158,7 @@ export const AuctionDetailScreen: React.FC<AuctionDetailScreenProps> = ({ naviga
         }
     };
 
-    if (loading) {
+    if (isLoading) {
         return (
             <Screen style={styles.center}>
                 <Loader size="large" />
@@ -164,11 +166,11 @@ export const AuctionDetailScreen: React.FC<AuctionDetailScreenProps> = ({ naviga
         );
     }
 
-    if (!auction) {
+    if (error || !auction) {
         return (
             <Screen style={styles.center}>
                 <Text style={styles.errorText}>Something went wrong</Text>
-                <Button title={t.common.retry} onPress={loadAuction} style={styles.retryButton} />
+                <Button title={t.common.retry} onPress={() => refetch()} style={styles.retryButton} />
             </Screen>
         );
     }
